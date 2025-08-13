@@ -1,13 +1,19 @@
 import os
 import enum
 from datetime import datetime, date
-from typing import Optional
+from typing import Optional, Any
 from sqlmodel import SQLModel, Field, create_engine, Session
-from sqlalchemy import Column
+from sqlalchemy import Column, JSON
 from sqlalchemy.types import JSON as SAJSON
+import datetime as dt
+
 
 DB_URL = os.getenv("DB_URL", "sqlite:///data/app.db")
-engine = create_engine(DB_URL, connect_args={"check_same_thread": False})
+
+if DB_URL.startswith("sqlite"):
+    engine = create_engine(DB_URL, connect_args={"check_same_thread": False})
+else:
+    engine = create_engine(DB_URL, pool_pre_ping=True)
 
 # --- Enums ---
 class Direction(enum.Enum):
@@ -49,7 +55,10 @@ class MigraineDiary(SQLModel, table=True):
     meds: Optional[str] = None
     relief_pct: Optional[int] = None
     triggers: Optional[dict] = Field(default=None, sa_column=Column(SAJSON))
-    notes: Optional[str] = None
+    notes: Optional[dict[str, Any]] = Field(
+    default=None,
+    sa_column=Column(JSON)  # works on Postgres; SQLAlchemy shims it on SQLite
+)
 
 class WorkoutPlan(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -83,3 +92,39 @@ def create_db_and_tables():
 
 def get_session() -> Session:
     return Session(engine)
+
+class DailyHealthSummary(SQLModel, table=True):
+    the_day: dt.date = Field(primary_key=True)           # Melbourne-local day
+    computed_at: dt.datetime = Field(default_factory=lambda: dt.datetime.utcnow())
+
+    # Sleep
+    sleep_minutes: Optional[int] = None
+    sleep_efficiency: Optional[float] = None
+    wake_episodes: Optional[int] = None
+    sleep_score: Optional[int] = None
+
+    # Heart
+    resting_hr: Optional[int] = None
+    hr_mean: Optional[float] = None
+    hr_min: Optional[int] = None
+    hr_max: Optional[int] = None
+
+    # Flags (set elsewhere)
+    migraine_flag: Optional[bool] = None
+    poor_sleep_flag: Optional[bool] = None
+
+    # Tiny blob for provenance/version
+    notes: Optional[dict[str, Any]] = Field(
+    default=None,
+    sa_column=Column(JSON)  # works on Postgres; SQLAlchemy shims it on SQLite
+)
+
+    
+class HeartRateHourly(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    the_day: date
+    hour: int  # 0–23 local time
+    hr_mean: float
+    hr_min: int
+    hr_max: int
+    samples: int
